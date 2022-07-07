@@ -15,5 +15,6 @@ libraryDependencies ++=Seq (
   "com.typesafe.akka" %% "akka-stream-testkit" % akkaVersion,
   "org.scalatest" %% "scalatest" % "3.2.12",
   "org.apache.poi" % "poi" % "5.2.2",
-  "org.apache.poi" % "poi-ooxml" % "5.2.2"
+  "org.apache.poi" % "poi-ooxml" % "5.2.2",
+  "au.com.bytecode" % "opencsv" % "2.4"
 )

@@ -1,12 +1,13 @@
 
-import Model.Child.{ClassifyDataChild, Mile1}
+import Model.Child.{CategoryFilterFlow, CategoryWiseFinancialYear, ClassifyDataChild, Combine}
 import Model.Parent.{ClassifiedObjectData, ClassifyData, ErrorHandling, GetData}
 import Model.PurchaseDetail
-import Util.fileUtil
+import Util.{exceptionFileUtil, fileUtil}
+import akka.NotUsed
 import akka.actor.{Actor, ActorRef, ActorSystem, Props}
 import akka.routing.RoundRobinPool
-import akka.stream.ActorMaterializer
-import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
+import akka.stream.{ActorMaterializer, ClosedShape}
+import akka.stream.scaladsl.{Broadcast, Flow, GraphDSL, Keep, RunnableGraph, Sink, Source, Zip, ZipN, ZipWith, ZipWithN}
 import com.typesafe.config.ConfigFactory
 import org.apache.poi.ss.usermodel.{CellType, DateUtil, WorkbookFactory}
 
@@ -19,18 +20,27 @@ object Assign extends App{
 
   class Parent extends Actor {
     val orderList: ListBuffer[PurchaseDetail] = new ListBuffer[PurchaseDetail]()
-
+    var size:Int=0
     override def receive: Receive = {
       case GetData(filePath: String) => {
         val childRef: ActorRef = actorSystem.actorOf(Props[Child])
         childRef ! GetData(filePath)
       }
       case ClassifyData(fileContent: ListBuffer[ListBuffer[String]]) => {
+        size=fileContent.length
         val childPool = actorSystem.actorOf(RoundRobinPool(10).props(Props[Child]), "Child")
         fileContent.foreach({ data => childPool ! ClassifyDataChild(data) })
       }
+      case Combine(data:PurchaseDetail)=>{
+        orderList+=data
+        if(orderList.length==size){
+          val childRef: ActorRef = actorSystem.actorOf(Props[Child])
+          childRef !  CategoryFilterFlow(orderList)
+          childRef ! CategoryWiseFinancialYear(orderList)
+        }
+      }
       case ErrorHandling(data:Any,error:Exception)=>{
-        fileUtil(List(data,error),conf.getString("errorHandlingFileName"))
+        exceptionFileUtil(data,error,conf.getString("errorHandlingFileName"))
       }
     }
   }
@@ -40,7 +50,6 @@ object Assign extends App{
     implicit val materializer= ActorMaterializer()
     override def receive: Receive = {
 
-      //val orderList:ListBuffer[PurchaseDetail]=new ListBuffer[PurchaseDetail]()
       case GetData(filePath: String) => {
         try{
 
@@ -99,27 +108,65 @@ object Assign extends App{
             category = data(9),
             subRegion = data(10),
             name= data(11),
-            Sales= data(12).toFloat,
+            sales= data(12).toFloat,
             quantity= data(13).toFloat,
             discount= data(14).toFloat,
             profit= data(15).toFloat,
           )
-          context.self ! Mile1(order)
+          sender() ! Combine(order)
         }
         catch{
           case e:Exception=> {
             sender() ! ErrorHandling(data, e)
           }
         }
-
       }
-      case Mile1(data:PurchaseDetail)=>{
-        val source=Source.single(data)
-        val flow1=Flow[PurchaseDetail].filter(_.category==conf.getString("category"))
-        val flow2=Flow[PurchaseDetail].filter(_.orderDate.split(" ").last==conf.getString("year"))
 
-        val sink=Sink.foreach(println)
-        source.async.via(flow1).via(flow2).to(sink).run
+
+      case CategoryFilterFlow(data:ListBuffer[PurchaseDetail])=>{
+        val source=Source(data.toList)
+        val flowForCategory=Flow[PurchaseDetail].filter(_.category==conf.getString("category"))
+        val sink=Sink.foreach(data=>{
+          fileUtil(data,conf.getString("categorySinkFile"))
+        })
+
+        source.async.via(flowForCategory).to(sink).run
+      }
+
+
+      case CategoryWiseFinancialYear(data:ListBuffer[PurchaseDetail])=>{
+        val source=Source(data.toList)
+        val flow1=Flow[PurchaseDetail].filter(_.category==conf.getString("category"))
+        val flow=Flow[PurchaseDetail].filter(_.customerName==conf.getString("naame"))
+        val flow2=Flow[PurchaseDetail].filter(_.orderDate.split(" ").last==conf.getString("year"))
+        val sumOfSalesFlow=Flow[PurchaseDetail].map(_.sales).fold(0.0)(_+_)
+        val sumOfQuantityFlow=Flow[PurchaseDetail].map(_.quantity).fold(0.0)(_ + _)
+        val sumOfDiscountFlow=Flow[PurchaseDetail].map(_.discount).fold(0.0)(_ + _)
+        val sumOfProfitFlow=Flow[PurchaseDetail].map(_.profit).fold(0.0)(_ + _)
+        val sink=Sink.foreach(data=>{
+          fileUtil(data,conf.getString("categoryWiseFinancialYearSinkFile"))
+        })
+
+
+        val graphForSalesQuantityDiscountAndProfit=RunnableGraph.fromGraph(
+          GraphDSL.create(){
+            implicit builder:GraphDSL.Builder[NotUsed]=>
+              import GraphDSL.Implicits._
+
+              val broadcast= builder.add(Broadcast [PurchaseDetail] (4))
+
+              val zip= builder.add(ZipN[Any](4))
+              source.via(flow1).via(flow2) ~> broadcast
+
+              broadcast.out(0) ~> sumOfSalesFlow ~> zip.in(0)
+              broadcast.out(1) ~> sumOfQuantityFlow ~> zip.in(1)
+              broadcast.out(2) ~> sumOfDiscountFlow~> zip.in(2)
+              broadcast.out(3) ~> sumOfProfitFlow~> zip.in(3)
+              zip.out ~> sink
+              ClosedShape
+          }
+        )
+        graphForSalesQuantityDiscountAndProfit.run
       }
     }
   }

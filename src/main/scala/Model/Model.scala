@@ -11,6 +11,7 @@ object Parent {
 object Child{
   case class ClassifyDataChild(data: ListBuffer[String])
   case class StreamDataChannel(data:ListBuffer[String])
-  case class Mile1(data:PurchaseDetail)
-
+  case class CategoryFilterFlow(data :ListBuffer[PurchaseDetail])
+  case class CategoryWiseFinancialYear(data:ListBuffer[PurchaseDetail])
+  case class Combine(data:PurchaseDetail)
 }

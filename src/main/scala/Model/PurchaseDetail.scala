@@ -1,7 +1,5 @@
 package Model
 
-import java.time.LocalDate
-
 case class PurchaseDetail(
                            orderDate: String,
                            shipDate: String,
@@ -15,7 +13,7 @@ case class PurchaseDetail(
                            category:String,
                            subRegion:String,
                            name:String,
-                           Sales:Float,
+                           sales:Float,
                            quantity:Float,
                            discount:Float,
                            profit:Float
