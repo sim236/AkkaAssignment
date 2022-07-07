@@ -14,9 +14,9 @@ case class PurchaseDetail(
                            region:String,
                            category:String,
                            subRegion:String,
-//                           name:String,
-//                           Sales:Float,
-//                           quantity:Float,
-//                           discount:Float,
-//                           profit:Float
+                           name:String,
+                           Sales:Float,
+                           quantity:Float,
+                           discount:Float,
+                           profit:Float
                           )
